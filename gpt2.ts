@@ -224,17 +224,6 @@ const trainer = new Trainer(277);
 const codec = trainer.train(str);
 debug({ codec });
 
-// const testString = "Hello, Byte-Pair Encoding! 👋🌍 is another english";
-// const encoded = codec.encode(testString);
-// const decoded = codec.decode(encoded);
-// console.log('Decoded matches original string?', decoded === testString);
-// console.log({ encoded, decoded });
-
-// const a = codec.encode('a');
-// console.log(codec.decode(a));
-
-const testEncoding = (str: string) => codec.encode(str);
-
 const test = (str: string) => {
   const encoded = codec.encode(str);
   const decoded = codec.decode(encoded);
