@@ -5,11 +5,11 @@ type StatsValue = { packed: PackedPair; count: number; arr: [number, number] }
 type Stats = Map<PackedPair, StatsValue>
 type Tokens = number[]
 
-export const DEBUG = false;
+export const DEBUG = Deno.env.has("DEBUG");
 
 const debug = (...args: unknown[]) => {
   if (DEBUG) {
-    console.log(...args);
+    console.log('[debug]', ...args);
   }
 }
 
@@ -19,11 +19,20 @@ const pack = (a: number, b: number): PackedPair => (a << 16) | b
 // unpacks one 16-bit number into two 8-bit numbers
 const unpack = (n: PackedPair) => [(n >> 16) & 0xffff, n & 0xffff]
 
+const combine = (a: Uint8Array, b: Uint8Array) => {
+  const combined = new Uint8Array(a.length + b.length);
+  combined.set(a, 0);
+  combined.set(b, a.length);
+  return combined;
+}
+
 export class BasicTokenizer {
   #vocab_size: number = 0;
 
   // merge order from least to greatest vocab index. see training process
   #merges: [number, [number, number]][] = [];
+
+  #vocab: Map<number, Uint8Array<ArrayBuffer>> = new Map();
 
   constructor(vocab_size: number) {
     this.#vocab_size = vocab_size;
@@ -36,6 +45,11 @@ export class BasicTokenizer {
     const num_merges = this.#vocab_size - 256
 
     this.#merges = [];
+    this.#vocab.clear();
+
+    for (let i = 0; i < 256; i++) {
+      this.#vocab.set(i, new Uint8Array([i]));
+    }
 
     let currentTokens = tokens;
 
@@ -51,11 +65,15 @@ export class BasicTokenizer {
       this.#merges.push([idx, top.arr])
       // debug(`merge ${i + 1}/${num_merges}: ${top.arr} -> ${idx} (${top.count})`);
 
-      if (DEBUG) {
-        const decoder = new TextDecoder('utf-8', { fatal: false });
-        const step = i < 9 ? ` ${i + 1}` : i + 1;
-        console.log(`  Step ${step}: ${currentTokens.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}'`);
-      }
+      const first = this.#vocab.get(top.arr[0])
+      const second= this.#vocab.get(top.arr[1])
+      this.#vocab.set(idx, combine(first!, second!));
+
+      // if (DEBUG) {
+      //   const decoder = new TextDecoder('utf-8', { fatal: false });
+      //   const step = i < 9 ? ` ${i + 1}` : i + 1;
+      //   console.log(`  Step ${step}: ${currentTokens.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}'`);
+      // }
     }
     debug('End Training');
   }
@@ -77,10 +95,10 @@ export class BasicTokenizer {
           }
         }
       });
-      debug({ lowest: lowest.filter(Boolean) });
+      // debug({ lowest: lowest.filter(Boolean) });
 
       const l = lowest.sort((a, b) => (a?.idx ?? Infinity) - (b?.idx ?? Infinity)).filter(Boolean)[0]
-      debug({ l })
+      // debug({ l })
 
       if (!l) break;
       tokens = BasicTokenizer.replace(tokens, l.pair, l.idx)
@@ -90,30 +108,50 @@ export class BasicTokenizer {
   }
 
   decode(tokens: number[]) {
-    debug('decoding', tokens);
+    debug('decoding', tokens.length);
 
-    const toks = tokens.slice()
-
-    // do not use reverse() as it mutates the array and causes bugs
-    for (const merge of this.#merges.toReversed()) {
-      debug({ merge });
-
-      for (let i = toks.length - 1; i >= 0; i--) {
-        if (merge[0] === toks[i]) {
-          toks.splice(i, 1, ...merge[1])
-        }
+    const ret: number[] = [];
+    for (const idx of tokens) {
+      const replacement = this.#vocab.get(idx)
+      if (replacement) {
+        ret.push(...Array.from(replacement));
+      } else {
+        throw new Error(`Token ${idx} not found in vocabulary during decoding.`);
       }
     }
+    return new TextDecoder().decode(new Uint8Array(ret));
 
-    return new TextDecoder().decode(new Uint8Array(toks));
+    // do not use reverse() as it mutates the array and causes bugs
+    // for (const merge of this.#merges.toReversed()) {
+    //   debug({ merge });
+
+    //   for (let i = toks.length - 1; i >= 0; i--) {
+    //     if (merge[0] === toks[i]) {
+    //       toks.splice(i, 1, ...merge[1])
+    //     }
+    //   }
+    // }
+
+    // return new TextDecoder().decode(new Uint8Array(toks));
   }
 
   printMerges() {
+    debug('Merges:');
     const merges = this.#merges.slice();
     const decoder = new TextDecoder('utf-8', { fatal: false });
     for (let i = 0; i < merges.length; i++) {
       const [idx, pair] = merges[i];
-      console.log(`${idx} -> '${decoder.decode(new Uint8Array(pair))}'`);
+      debug(`  {idx} -> '${decoder.decode(new Uint8Array(pair))}'`);
+    }
+  }
+
+  printVocab() {
+    debug('Vocabulary:');
+    const vocab = Array.from(this.#vocab.entries()).sort((a, b) => a[0] - b[0]);
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    for (const [idx, token] of vocab) {
+      if (idx < 256) continue; // skip base vocab
+      debug(`  ${idx}: '${decoder.decode(token)}'`);
     }
   }
 
@@ -162,7 +200,8 @@ const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.t
 const tokenizer = new BasicTokenizer(500);
 tokenizer.train(str);
 debug({ tokenizer });
-tokenizer.printMerges();
+// tokenizer.printMerges();
+tokenizer.printVocab();
 
 const test = (str: string) => {
   const encoded = tokenizer.encode(str);
@@ -183,5 +222,5 @@ const test = (str: string) => {
   console.log(`Test passed. String length: '${str.length}'`);
 }
 
-test('');
-test(str);
+test('I can\'t believe it\'s not butter! :snowman: ⛄️ ! 3hoo 3,333');
+// test(str);

@@ -84,11 +84,11 @@ export class RegexTokenizer {
         tokenChunks[j] = RegexTokenizer.replace(tokenChunks[j], top.arr, idx)
       }
 
-      if (DEBUG) {
-        const decoder = new TextDecoder('utf-8', { fatal: false });
-        const step = i < 9 ? ` ${i + 1}` : i + 1;
-        debug(` Step ${step}: ${tokenChunks.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}' had ${top.count} occurrences`);
-      }
+      // if (DEBUG) {
+      //   const decoder = new TextDecoder('utf-8', { fatal: false });
+      //   const step = i < 9 ? ` ${i + 1}` : i + 1;
+      //   debug(` Step ${step}: ${tokenChunks.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}' had ${top.count} occurrences`);
+      // }
     }
 
     debug('End Training');
@@ -180,6 +180,7 @@ export class RegexTokenizer {
     const vocab = Array.from(this.#vocab.entries()).sort((a, b) => a[0] - b[0]);
     const decoder = new TextDecoder('utf-8', { fatal: false });
     for (const [idx, token] of vocab) {
+      if (idx < 256) continue; // skip base vocab
       debug(`  ${idx}: '${decoder.decode(token)}'`);
     }
   }
@@ -231,7 +232,7 @@ const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L
 
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
 const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
-const tokenizer = new RegexTokenizer(300, GPT4_REGEX);
+const tokenizer = new RegexTokenizer(500, GPT4_REGEX);
 tokenizer.train(str);
 // debug({ tokenizer });
 // tokenizer.printMerges();
@@ -257,4 +258,5 @@ const test = (str: string) => {
 }
 
 // test('Hello, world! This is a test of the RegexTokenizer. Let\'s see how it handles contractions like don\'t and I\'ll.');
-test(str);
+// test(str);
+test('I can\'t believe it\'s not butter! :snowman: ⛄️ ! 3hoo 3,333');
