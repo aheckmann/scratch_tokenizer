@@ -5,6 +5,14 @@ type StatsValue = { packed: PackedPair; count: number; arr: [number, number] }
 type Stats = Map<PackedPair, StatsValue>
 type Tokens = number[]
 
+const DEBUG = false;
+
+const debug = (...args: unknown[]) => {
+  if (DEBUG) {
+    console.log(...args);
+  }
+}
+
 // const input = `Ｕｎｉｃｏｄｅ! 🅤🅝🅘🅒🅞🅓🅔‽ 🇺‌🇳‌🇮‌🇨‌🇴‌🇩‌🇪! 😄 The very name strikes fear and awe into the hearts of programmers worldwide. We all know we ought to “support Unicode” in our software (whatever that means—like using wchar_t for all the strings, right?). But Unicode can be abstruse, and diving into the thousand-page Unicode Standard plus its dozens of supplementary annexes, reports, and notes can be more than a little intimidating. I don’t blame programmers for still finding the whole thing mysterious, even 30 years after Unicode’s inception.`
 // console.log(input)
 // console.log(`Length: ${input.length}`)
@@ -176,9 +184,11 @@ class Codec {
           }
         }
       });
-      // console.log({ lowest: lowest.filter(Boolean) });
+      debug({ lowest: lowest.filter(Boolean) });
+
       const l = lowest.sort((a, b) => (a?.idx ?? Infinity) - (b?.idx ?? Infinity)).filter(Boolean)[0]
-      // console.log({ l })
+      debug({ l })
+
       if (!l) break;
       tokens = Trainer.replace(tokens, l.pair, l.idx)
     }
@@ -187,12 +197,12 @@ class Codec {
   }
 
   decode(tokens: number[]) {
-    // console.log('decoding', tokens);
+    debug('decoding', tokens);
 
     const toks = tokens.slice()
 
-    for (const merge of this.#merges.reverse()) {
-      // console.log({ merge });
+    for (const merge of this.#merges.slice().reverse()) {
+      debug({ merge });
 
       for (let i = toks.length - 1; i >= 0; i--) {
         if (merge[0] === toks[i]) {
@@ -212,7 +222,7 @@ class Codec {
 const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
 const trainer = new Trainer(277);
 const codec = trainer.train(str);
-console.log({ codec });
+debug({ codec });
 
 // const testString = "Hello, Byte-Pair Encoding! 👋🌍 is another english";
 // const encoded = codec.encode(testString);
@@ -223,14 +233,26 @@ console.log({ codec });
 // const a = codec.encode('a');
 // console.log(codec.decode(a));
 
+const testEncoding = (str: string) => codec.encode(str);
+
 const test = (str: string) => {
   const encoded = codec.encode(str);
   const decoded = codec.decode(encoded);
-  if (decoded !== str) throw new Error(`Decoded does not match original string! '${decoded}' != '${str}'`);
-  console.log(`Test passed. '${str.length}'`);
+  if (decoded !== str) {
+    for (let i = 0; i < Math.min(decoded.length, str.length); i++) {
+      if (decoded[i] !== str[i]) {
+        const prefixA = str.substring(Math.max(0, i - 10), i + 10);
+        const prefixB = decoded.substring(Math.max(0, i - 10), i + 10);
+        console.error(`Mismatch at index ${i}`);
+        console.error(`Original: '${prefixA}'`);
+        console.error(`Decoded : '${prefixB}'`);
+        break;
+      }
+    }
+    throw new Error(`Decoded does not match original string!`);
+  }
+  console.log(`Test passed. String length: '${str.length}'`);
 }
-// const decoder = new TextDecoder('utf-8', { fatal: false });
-// console.log(`  Step ${i + 1}: ${tokens.length} tokens, vocab size: ${vocab_size}, replaced pair ${top.arr} with ${vocab_size - 1}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}'`);
 
-test('🇺‌🇳‌🇮‌🇨‌🇴‌🇩‌🇪 329 { ( - [ Nic3!?] - ) } alone is here');
-test(str)
+test('');
+test(str);
