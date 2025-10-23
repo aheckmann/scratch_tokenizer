@@ -13,6 +13,39 @@ const debug = (...args: unknown[]) => {
   }
 }
 
+
+const print = (() => {
+  const te = new TextEncoder();
+  const RESET = te.encode('\x1b[0m');
+  const COLORS = [
+    te.encode('\x1b[41m'), // red background
+    te.encode('\x1b[42m'), // green background
+    te.encode('\x1b[43m'), // yellow background
+    te.encode('\x1b[44m'), // blue background
+    te.encode('\x1b[45m'), // magenta background
+    te.encode('\x1b[46m'), // cyan background
+    te.encode('\x1b[101m'), // bright red background
+    te.encode('\x1b[102m'), // bright green background
+    te.encode('\x1b[103m'), // bright yellow background
+    te.encode('\x1b[104m'), // bright blue background
+  ];
+
+  let colorIndex = 0;
+
+  return (args: Uint8Array) => {
+    const color = COLORS[colorIndex++ % COLORS.length];
+    Deno.stdout.writeSync(color);
+    if (args.at(-1) === 10) {
+      Deno.stdout.writeSync(args.slice(0, -1));
+      Deno.stdout.writeSync(RESET);
+      Deno.stdout.writeSync(new Uint8Array([10]));
+    } else {
+      Deno.stdout.writeSync(args);
+      Deno.stdout.writeSync(RESET);
+    }
+  }
+})();
+
 // packs two 8-bit numbers into one 16-bit number
 const pack = (a: number, b: number): PackedPair => (a << 16) | b
 
@@ -39,7 +72,7 @@ export class RegexTokenizer {
   #regex: RegExp = /\S+/g;
   #vocab: Map<number, Uint8Array<ArrayBuffer>> = new Map();
   #special_tokens: Map<string, number> = new Map();
-  #inverse_special_tokens: Map<number, string> = new Map();
+  #inverse_special_tokens: Map<number, Uint8Array<ArrayBuffer>> = new Map();
 
   // merge order from least to greatest vocab index. see training process
   #merges: [number, [number, number]][] = [];
@@ -60,12 +93,15 @@ export class RegexTokenizer {
 
   register_special_tokens(tokens: Map<string, number>) {
     this.#special_tokens = tokens;
+    const encoder = new TextEncoder();
     for (const [token, idx] of tokens.entries()) {
-      this.#inverse_special_tokens.set(idx, token);
+      this.#inverse_special_tokens.set(idx, encoder.encode(token));
     }
   }
 
   train(text: string) {
+    console.time('Training');
+
     const encoder = new TextEncoder()
 
     this.#merges = [];
@@ -79,8 +115,6 @@ export class RegexTokenizer {
 
     const stringChunks = [...text.matchAll(this.#regex)].map(m => m[0]); // string[]
     const tokenChunks = stringChunks.map(chunk => Array.from(encoder.encode(chunk)));
-
-    debug('Start Training');
 
     for (let i = 0; i < num_merges; i++) {
       const stats: Stats = new Map();
@@ -113,10 +147,11 @@ export class RegexTokenizer {
       // }
     }
 
-    debug('End Training');
+    console.timeEnd('Training');
   }
 
   encode(text: string, allowed_special: 'none_raise' | 'none' | 'all' | Set<string> = 'none_raise') {
+    console.time('encode');
     let special = new Map<string, number>();
 
     if (allowed_special === 'all') {
@@ -161,6 +196,7 @@ export class RegexTokenizer {
       }
     }
 
+    console.timeEnd('encode');
     return encodedChunks;
   }
 
@@ -178,17 +214,15 @@ export class RegexTokenizer {
       // check if any token pairs are in merges, if so, take the one with lowest idx. replace it. repeat.
       while (true) {
         const pairs = RegexTokenizer.get_unique_pairs(tokens)
-        const matchingMerges = pairs.map(pair => {
+        const merges: { pair: [number, number], idx: number }[] = []
+        for (const pair of pairs) {
           for (const [idx, mergePair] of this.#merges) {
             if (pair[0] === mergePair[0] && pair[1] === mergePair[1]) {
-              return { pair, idx }
+              merges.push({ pair, idx })
             }
           }
-        });
-
-        const lowest = matchingMerges.sort((a, b) => (a?.idx ?? Infinity) - (b?.idx ?? Infinity)).filter(Boolean)[0]
-        // debug({ lowest })
-
+        }
+        const lowest = merges.sort((a, b) => a.idx - b.idx)[0]
         if (!lowest) break;
         tokens = RegexTokenizer.replace(tokens, lowest.pair, lowest.idx)
       }
@@ -201,23 +235,9 @@ export class RegexTokenizer {
 
   decode(tokenChunks: number[][]) {
     debug('decoding %s token chunks', tokenChunks.length);
-
-    // const chunks = tokenChunks.slice()
-    // // do not use reverse() as it mutates the array and causes bugs
-    // const merges = this.#merges.toReversed()
-    // for (const chunk of chunks) {
-    //   for (const merge of merges) {
-    //     for (let i = chunk.length - 1; i >= 0; i--) {
-    //       if (merge[0] === chunk[i]) {
-    //         chunk.splice(i, 1, ...merge[1])
-    //       }
-    //     }
-    //   }
-    // }
-    // return new TextDecoder().decode(new Uint8Array(chunks.flat()));
+    console.time('decode');
 
     const chunks: number[][] = [];
-    const encoder = new TextEncoder();
 
     for (const chunk of tokenChunks) {
       const ret: number[] = [];
@@ -225,8 +245,8 @@ export class RegexTokenizer {
         if (this.#vocab.has(idx)) {
           ret.push(...Array.from(this.#vocab.get(idx)!));
         } else if (this.#inverse_special_tokens.has(idx)) {
-          const tokenStr = this.#inverse_special_tokens.get(idx)!;
-          ret.push(...Array.from(encoder.encode(tokenStr)));
+          const inverseToken = this.#inverse_special_tokens.get(idx)!;
+          ret.push(...Array.from(inverseToken));
         } else {
           throw new Error(`Token ${idx} not found in vocabulary during decoding.`);
         }
@@ -235,7 +255,30 @@ export class RegexTokenizer {
     }
 
     const flattened = chunks.flat();
+
+    console.timeEnd('decode');
     return new TextDecoder().decode(new Uint8Array(flattened));
+  }
+
+  printCLIvisualization(tokenChunks: number[][]) {
+    console.time('visualize');
+
+    for (const chunk of tokenChunks) {
+      const ret: number[] = [];
+      for (const idx of chunk) {
+        if (this.#vocab.has(idx)) {
+          ret.push(...Array.from(this.#vocab.get(idx)!));
+        } else if (this.#inverse_special_tokens.has(idx)) {
+          ret.push(...Array.from(this.#inverse_special_tokens.get(idx)!));
+        } else {
+          throw new Error(`Token ${idx} not found in vocabulary during decoding.`);
+        }
+      }
+      print(new Uint8Array(ret));
+    }
+
+    console.log()
+    console.timeEnd('visualize');
   }
 
   printMerges() {
@@ -305,14 +348,16 @@ const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L
 
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
 const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
-const tokenizer = new RegexTokenizer(500, GPT4_REGEX);
+const tokenizer = new RegexTokenizer(300, GPT4_REGEX);
 tokenizer.train(str);
 // debug({ tokenizer });
 // tokenizer.printMerges();
-tokenizer.printVocab();
+// tokenizer.printVocab();
 
 const test = (...args: Parameters<RegexTokenizer['encode']>) => {
   const encoded = tokenizer.encode(...args);
+  console.dir(encoded)
+  tokenizer.printCLIvisualization(encoded);
   const decoded = tokenizer.decode(encoded);
   if (decoded !== args[0]) {
     for (let i = 0; i < Math.min(decoded.length, args[0].length); i++) {
@@ -335,8 +380,31 @@ const test = (...args: Parameters<RegexTokenizer['encode']>) => {
 // test('I can\'t believe it\'s not butter! :snowman: ⛄️ ! 3hoo 3,333');
 
 test(
-  'I can\'t believe it\'s not butter! <|fim_prefix|>cool<|fim_suffix|>over :snowman: ⛄️ ! 3hoo 3,333<|endofprompt|>',
-  'all'
+  // `I can\'t believe it\'s not
+  // butter! <|fim_prefix|>cool<|fim_suffix|>over :snowman: ⛄️ ! 3hoo 3,333<|endofprompt|>
+  // function add(a, b) {
+  //   return a + b;
+  // }`,
+//   `
+// for i in range(1, 101):
+//     if i % 3 == 0 and i % 5 == 0:
+//         print("FizzBuzz")
+//     elif i % 3 == 0:
+//         print("Fizz")
+//     elif i % 5 == 0:
+//         print("Buzz")
+//     else:
+//         print(i)`,
+`for i in range(1, 101):
+    if i % 3 == 0 and i % 5 == 0:
+        print("FizzBuzz")
+    elif i % 3 == 0:
+        print("Fizz")
+    elif i % 5 == 0:
+        print("Buzz")
+    else:
+        print(i)`
+  ,'all'
 );
   // ['<|endoftext|>', 100257],
   // ['<|fim_prefix|>', 100258],

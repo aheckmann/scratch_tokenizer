@@ -88,20 +88,17 @@ export class BasicTokenizer {
     // check if any token pairs are in merges, if so, take the one with lowest idx. replace it. repeat.
     while (true) {
       const pairs = BasicTokenizer.get_unique_pairs(tokens)
-      const lowest = pairs.map(pair => {
+      const merges: { pair: [number, number], idx: number }[] = []
+      for (const pair of pairs) {
         for (const [idx, mergePair] of this.#merges) {
           if (pair[0] === mergePair[0] && pair[1] === mergePair[1]) {
-            return { pair, idx }
+            merges.push({ pair, idx })
           }
         }
-      });
-      // debug({ lowest: lowest.filter(Boolean) });
-
-      const l = lowest.sort((a, b) => (a?.idx ?? Infinity) - (b?.idx ?? Infinity)).filter(Boolean)[0]
-      // debug({ l })
-
-      if (!l) break;
-      tokens = BasicTokenizer.replace(tokens, l.pair, l.idx)
+      }
+      const lowest = merges.sort((a, b) => a.idx - b.idx)[0]
+      if (!lowest) break;
+      tokens = BasicTokenizer.replace(tokens, lowest.pair, lowest.idx)
     }
 
     return tokens;
