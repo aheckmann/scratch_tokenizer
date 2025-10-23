@@ -13,7 +13,6 @@ const debug = (...args: unknown[]) => {
   }
 }
 
-
 const print = (() => {
   const te = new TextEncoder();
   const RESET = te.encode('\x1b[0m');
@@ -100,6 +99,7 @@ export class RegexTokenizer {
   }
 
   train(text: string) {
+    debug('Starting training...');
     console.time('Training');
 
     const encoder = new TextEncoder()
@@ -133,24 +133,16 @@ export class RegexTokenizer {
       const second= this.#vocab.get(top.arr[1])
       this.#vocab.set(idx, combine(first!, second!));
 
-      // this.#vocab.set(idx, `${this.#vocab.get(top.arr[0])!}${this.#vocab.get(top.arr[1])}`);
-      // debug(`merge ${i + 1}/${num_merges}: ${top.arr} -> ${idx} (${this.#vocab.get(idx)}: had ${top.count} occurrences`);
-
       for (let j = 0; j < tokenChunks.length; j++) {
         tokenChunks[j] = RegexTokenizer.replace(tokenChunks[j], top.arr, idx)
       }
-
-      // if (DEBUG) {
-      //   const decoder = new TextDecoder('utf-8', { fatal: false });
-      //   const step = i < 9 ? ` ${i + 1}` : i + 1;
-      //   debug(` Step ${step}: ${tokenChunks.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}' had ${top.count} occurrences`);
-      // }
     }
 
     console.timeEnd('Training');
+    debug('Finished training.');
   }
 
-  encode(text: string, allowed_special: 'none_raise' | 'none' | 'all' | Set<string> = 'none_raise') {
+  encode(text: string, allowed_special: 'none_raise' | 'none' | 'all' | Set<string> = 'all') {
     console.time('encode');
     let special = new Map<string, number>();
 
@@ -341,28 +333,38 @@ export class RegexTokenizer {
   }
 }
 
-// const gpt4_pattern = /'s|n't|'re|'ve|'ll|'d|[a-zA-Z]+|[0-9]+|[^\s\w]+|\s+/g;
-// GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
-// const r =                  /'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+/v;
-const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+/gv;
+export const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+/gv;
 
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
-const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
-const tokenizer = new RegexTokenizer(300, GPT4_REGEX);
-tokenizer.train(str);
+// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
+// const tokenizer = new RegexTokenizer(4096, GPT4_REGEX);
+// tokenizer.train(str);
 // debug({ tokenizer });
 // tokenizer.printMerges();
 // tokenizer.printVocab();
 
-const test = (...args: Parameters<RegexTokenizer['encode']>) => {
-  const encoded = tokenizer.encode(...args);
-  console.dir(encoded)
+export const test = ({
+  vocabSize,
+  regex,
+  trainingText,
+  testText
+}: {
+  vocabSize: number,
+  regex: RegExp,
+  trainingText: string,
+  testText: string
+}) => {
+  const tokenizer = new RegexTokenizer(vocabSize, regex);
+  tokenizer.train(trainingText);
+
+  const encoded = tokenizer.encode(testText, 'all');
   tokenizer.printCLIvisualization(encoded);
+
   const decoded = tokenizer.decode(encoded);
-  if (decoded !== args[0]) {
-    for (let i = 0; i < Math.min(decoded.length, args[0].length); i++) {
-      if (decoded[i] !== args[0][i]) {
-        const prefixA = args[0].substring(Math.max(0, i - 10), i + 10);
+  if (decoded !== testText) {
+    for (let i = 0; i < Math.min(decoded.length, testText.length); i++) {
+      if (decoded[i] !== testText[i]) {
+        const prefixA = testText.substring(Math.max(0, i - 10), i + 10);
         const prefixB = decoded.substring(Math.max(0, i - 10), i + 10);
         console.error(`Mismatch at index ${i}`);
         console.error(`Original: '${prefixA}'`);
@@ -372,42 +374,5 @@ const test = (...args: Parameters<RegexTokenizer['encode']>) => {
     }
     throw new Error(`Decoded does not match original string!`);
   }
-  console.log(`Test passed. String length: '${args[0].length}'`);
+  console.log(`Test passed. String length: '${testText.length}'`);
 }
-
-// test('Hello, world! This is a test of the RegexTokenizer. Let\'s see how it handles contractions like don\'t and I\'ll.');
-// test(str);
-// test('I can\'t believe it\'s not butter! :snowman: ⛄️ ! 3hoo 3,333');
-
-test(
-  // `I can\'t believe it\'s not
-  // butter! <|fim_prefix|>cool<|fim_suffix|>over :snowman: ⛄️ ! 3hoo 3,333<|endofprompt|>
-  // function add(a, b) {
-  //   return a + b;
-  // }`,
-//   `
-// for i in range(1, 101):
-//     if i % 3 == 0 and i % 5 == 0:
-//         print("FizzBuzz")
-//     elif i % 3 == 0:
-//         print("Fizz")
-//     elif i % 5 == 0:
-//         print("Buzz")
-//     else:
-//         print(i)`,
-`for i in range(1, 101):
-    if i % 3 == 0 and i % 5 == 0:
-        print("FizzBuzz")
-    elif i % 3 == 0:
-        print("Fizz")
-    elif i % 5 == 0:
-        print("Buzz")
-    else:
-        print(i)`
-  ,'all'
-);
-  // ['<|endoftext|>', 100257],
-  // ['<|fim_prefix|>', 100258],
-  // ['<|fim_middle|>', 100259],
-  // ['<|fim_suffix|>', 100260],
-  // ['<|endofprompt|>', 100276],
