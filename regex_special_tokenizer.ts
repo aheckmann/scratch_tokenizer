@@ -1,4 +1,4 @@
-// Byte-Pair Encoding (BPE) tokenizer implementation in TypeScript
+// Byte-Pair Encoding (BPE) tokenizer
 
 type PackedPair = number
 type StatsValue = { packed: PackedPair; count: number; arr: [number, number] }
@@ -7,12 +7,24 @@ type Tokens = number[]
 
 export const DEBUG = Deno.env.has("DEBUG");
 
+/**
+ * Logs debug messages to the console if the DEBUG env variable is set.
+ */
 const debug = (...args: unknown[]) => {
   if (DEBUG) {
     console.log('[debug]', ...args);
   }
 }
 
+/**
+ * Prints an Uint8Array to the console with a different background color each
+ * time it is called. Useful for visualizing an encoded text in the console.
+ *
+ * const tokenizer = new RegexTokenizer();
+ * tokenizer.train("some training text");
+ * const encoded = tokenizer.encode("some text");
+ * print(encoded);
+ */
 const print = (() => {
   const te = new TextEncoder();
   const RESET = te.encode('\x1b[0m');
@@ -34,6 +46,9 @@ const print = (() => {
   return (args: Uint8Array) => {
     const color = COLORS[colorIndex++ % COLORS.length];
     Deno.stdout.writeSync(color);
+
+    // if ends with newline, reset color before printing newline so the entire
+    // terminal line isn't colored.
     if (args.at(-1) === 10) {
       Deno.stdout.writeSync(args.slice(0, -1));
       Deno.stdout.writeSync(RESET);
@@ -45,18 +60,28 @@ const print = (() => {
   }
 })();
 
-// packs two 8-bit numbers into one 16-bit number
+/**
+ * Packs two 8-bit numbers into one 16-bit number
+ */
 const pack = (a: number, b: number): PackedPair => (a << 16) | b
 
-// unpacks one 16-bit number into two 8-bit numbers
+/**
+ * Unpacks one 16-bit number into two 8-bit numbers
+ */
 const unpack = (n: PackedPair) => [(n >> 16) & 0xffff, n & 0xffff]
 
+/**
+ * Combines two Uint8Arrays into one.
+ */
 const combine = (a: Uint8Array, b: Uint8Array) => {
   const combined = new Uint8Array(a.length + b.length);
   combined.set(a, 0);
   combined.set(b, a.length);
   return combined;
 }
+
+// GPT-4 regex adapted from https://www.fast.ai/posts/2025-10-16-karpathy-tokenizers.html#regex-based-pre-tokenization
+export const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+/gv;
 
 const DEFAULT_ALLOWED_SPECIAL: Map<string, number> = new Map([
   ['<|endoftext|>', 100257],
@@ -77,8 +102,8 @@ export class RegexTokenizer {
   #merges: [number, [number, number]][] = [];
 
   constructor(
-    vocab_size: number,
-    regex: RegExp = /\S+/g,
+    vocab_size: number = 500,
+    regex: RegExp = GPT4_REGEX,
     special_tokens: Map<string, number> = DEFAULT_ALLOWED_SPECIAL,
   ) {
     this.#vocab_size = vocab_size;
@@ -102,8 +127,6 @@ export class RegexTokenizer {
     debug('Starting training...');
     console.time('Training');
 
-    const encoder = new TextEncoder()
-
     this.#merges = [];
     this.#vocab.clear();
 
@@ -111,13 +134,15 @@ export class RegexTokenizer {
       this.#vocab.set(i, new Uint8Array([i]));
     }
 
+    const encoder = new TextEncoder()
     const num_merges = this.#vocab_size - 256
 
-    const stringChunks = [...text.matchAll(this.#regex)].map(m => m[0]); // string[]
-    const tokenChunks = stringChunks.map(chunk => Array.from(encoder.encode(chunk)));
+    const matches = [...text.matchAll(this.#regex)]
+    const tokenChunks = matches.map(match => Array.from(encoder.encode(match[0])));
 
     for (let i = 0; i < num_merges; i++) {
       const stats: Stats = new Map();
+
       for (const tokenChunk of tokenChunks) {
         RegexTokenizer.get_stats(tokenChunk, stats);
       }
@@ -129,9 +154,9 @@ export class RegexTokenizer {
       this.#merges.push([idx, top.arr])
 
       // expand our vocab
-      const first = this.#vocab.get(top.arr[0])
-      const second= this.#vocab.get(top.arr[1])
-      this.#vocab.set(idx, combine(first!, second!));
+      const first = this.#vocab.get(top.arr[0])!
+      const second = this.#vocab.get(top.arr[1])!
+      this.#vocab.set(idx, combine(first, second));
 
       for (let j = 0; j < tokenChunks.length; j++) {
         tokenChunks[j] = RegexTokenizer.replace(tokenChunks[j], top.arr, idx)
@@ -194,8 +219,8 @@ export class RegexTokenizer {
 
   encode_ordinary(text: string) {
     const encoder = new TextEncoder()
-    const stringChunks = [...text.matchAll(this.#regex)].map(m => m[0]); // string[]
-    const tokenChunks = stringChunks.map(chunk => Array.from(encoder.encode(chunk)));
+    const matches = [...text.matchAll(this.#regex)]
+    const tokenChunks = matches.map(match => Array.from(encoder.encode(match[0])));
 
     for (let i = 0; i < tokenChunks.length; i++) {
       let tokens = tokenChunks[i];
@@ -256,17 +281,17 @@ export class RegexTokenizer {
     console.time('visualize');
 
     for (const chunk of tokenChunks) {
-      const ret: number[] = [];
+      const token: number[] = [];
       for (const idx of chunk) {
         if (this.#vocab.has(idx)) {
-          ret.push(...Array.from(this.#vocab.get(idx)!));
+          token.push(...Array.from(this.#vocab.get(idx)!));
         } else if (this.#inverse_special_tokens.has(idx)) {
-          ret.push(...Array.from(this.#inverse_special_tokens.get(idx)!));
+          token.push(...Array.from(this.#inverse_special_tokens.get(idx)!));
         } else {
-          throw new Error(`Token ${idx} not found in vocabulary during decoding.`);
+          throw new Error(`Token ${idx} not found in vocabulary.`);
         }
       }
-      print(new Uint8Array(ret));
+      print(new Uint8Array(token));
     }
 
     console.log()
@@ -333,26 +358,22 @@ export class RegexTokenizer {
   }
 }
 
-export const GPT4_REGEX = /'([sSdDmMtT]|ll|LL|lL|Ll|ve|VE|vE|Ve|re|RE|rE|Re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+/gv;
-
-// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
-// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
-// const tokenizer = new RegexTokenizer(4096, GPT4_REGEX);
-// tokenizer.train(str);
-// debug({ tokenizer });
-// tokenizer.printMerges();
-// tokenizer.printVocab();
-
 export const test = ({
   vocabSize,
   regex,
   trainingText,
-  testText
+  testText,
+  printVocab = false,
+  printMerges = false,
+  printTokens = false
 }: {
   vocabSize: number,
   regex: RegExp,
   trainingText: string,
-  testText: string
+  testText: string,
+  printVocab?: boolean
+  printMerges?: boolean
+  printTokens?: boolean
 }) => {
   const tokenizer = new RegexTokenizer(vocabSize, regex);
   tokenizer.train(trainingText);
@@ -374,5 +395,16 @@ export const test = ({
     }
     throw new Error(`Decoded does not match original string!`);
   }
+
+  if (printVocab) {
+    tokenizer.printVocab();
+  }
+  if (printMerges) {
+    tokenizer.printMerges();
+  }
+  if (printTokens) {
+    console.log('Encoded tokens:', encoded.flat());
+  }
+
   console.log(`Test passed. String length: '${testText.length}'`);
 }
