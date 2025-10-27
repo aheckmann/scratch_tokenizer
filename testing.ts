@@ -1,6 +1,6 @@
 import { test, GPT4_REGEX } from './3_regex_special_tokenizer.ts'
 
-const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/multilingual.txt'));
+// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/multilingual.txt'));
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/blog.txt'));
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/taylorswift.txt'));
 
@@ -9,13 +9,13 @@ const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/multi
 //   return a + b;
 // }`
 
-// const str = `def add(a, b):
-//     print("Adding numbers", a, b)
-//     return a + b
+const str = `def add(a, b):
+    print("Adding numbers", a, b)
+    return a + b
 
-// <|endoftext|>`
+<|endoftext|>`
 
-const trainingText = new TextDecoder('utf-8').decode(await Deno.readFile('./regex_special_tokenizer.ts'));
+const trainingText = new TextDecoder('utf-8').decode(await Deno.readFile('./3_regex_special_tokenizer.ts'));
 
 test({
   vocabSize: 500,
