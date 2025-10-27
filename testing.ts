@@ -1,4 +1,4 @@
-import { test, GPT4_REGEX } from './regex_special_tokenizer.ts'
+import { test, GPT4_REGEX } from './3_regex_special_tokenizer.ts'
 
 const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/multilingual.txt'));
 // const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/blog.txt'));

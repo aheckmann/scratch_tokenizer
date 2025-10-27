@@ -1,4 +1,3 @@
-// Byte-Pair Encoding (BPE) tokenizer implementation in TypeScript
 
 type PackedPair = number
 type StatsValue = { packed: PackedPair; count: number; arr: [number, number] }
@@ -63,17 +62,10 @@ export class BasicTokenizer {
       const idx = 256 + i
       currentTokens = BasicTokenizer.replace(currentTokens, top.arr, idx)
       this.#merges.push([idx, top.arr])
-      // debug(`merge ${i + 1}/${num_merges}: ${top.arr} -> ${idx} (${top.count})`);
 
       const first = this.#vocab.get(top.arr[0])
       const second= this.#vocab.get(top.arr[1])
       this.#vocab.set(idx, combine(first!, second!));
-
-      // if (DEBUG) {
-      //   const decoder = new TextDecoder('utf-8', { fatal: false });
-      //   const step = i < 9 ? ` ${i + 1}` : i + 1;
-      //   console.log(`  Step ${step}: ${currentTokens.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}'`);
-      // }
     }
     debug('End Training');
   }
@@ -117,19 +109,6 @@ export class BasicTokenizer {
       }
     }
     return new TextDecoder().decode(new Uint8Array(ret));
-
-    // do not use reverse() as it mutates the array and causes bugs
-    // for (const merge of this.#merges.toReversed()) {
-    //   debug({ merge });
-
-    //   for (let i = toks.length - 1; i >= 0; i--) {
-    //     if (merge[0] === toks[i]) {
-    //       toks.splice(i, 1, ...merge[1])
-    //     }
-    //   }
-    // }
-
-    // return new TextDecoder().decode(new Uint8Array(toks));
   }
 
   printMerges() {
@@ -138,7 +117,7 @@ export class BasicTokenizer {
     const decoder = new TextDecoder('utf-8', { fatal: false });
     for (let i = 0; i < merges.length; i++) {
       const [idx, pair] = merges[i];
-      debug(`  {idx} -> '${decoder.decode(new Uint8Array(pair))}'`);
+      debug(`  ${idx} -> '${decoder.decode(new Uint8Array(pair))}'`);
     }
   }
 
@@ -192,8 +171,8 @@ export class BasicTokenizer {
   }
 }
 
-// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./blog.txt'));
-const str = new TextDecoder('utf-8').decode(await Deno.readFile('./taylorswift.txt'));
+// const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/blog.txt'));
+const str = new TextDecoder('utf-8').decode(await Deno.readFile('./samples/taylorswift.txt'));
 const tokenizer = new BasicTokenizer(500);
 tokenizer.train(str);
 debug({ tokenizer });

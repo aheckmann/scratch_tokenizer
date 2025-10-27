@@ -1,4 +1,4 @@
-// Byte-Pair Encoding (BPE) tokenizer implementation in TypeScript
+// Byte-Pair Encoding (BPE) tokenizer
 
 type PackedPair = number
 type StatsValue = { packed: PackedPair; count: number; arr: [number, number] }
@@ -77,18 +77,9 @@ export class RegexTokenizer {
       const second= this.#vocab.get(top.arr[1])
       this.#vocab.set(idx, combine(first!, second!));
 
-      // this.#vocab.set(idx, `${this.#vocab.get(top.arr[0])!}${this.#vocab.get(top.arr[1])}`);
-      // debug(`merge ${i + 1}/${num_merges}: ${top.arr} -> ${idx} (${this.#vocab.get(idx)}: had ${top.count} occurrences`);
-
       for (let j = 0; j < tokenChunks.length; j++) {
         tokenChunks[j] = RegexTokenizer.replace(tokenChunks[j], top.arr, idx)
       }
-
-      // if (DEBUG) {
-      //   const decoder = new TextDecoder('utf-8', { fatal: false });
-      //   const step = i < 9 ? ` ${i + 1}` : i + 1;
-      //   debug(` Step ${step}: ${tokenChunks.length} tokens, vocab size: ${num_merges}, replaced pair ${top.arr} with ${idx}, '${decoder.decode(new Uint8Array([top.arr[0], top.arr[1]]))}' had ${top.count} occurrences`);
-      // }
     }
 
     debug('End Training');
@@ -131,20 +122,6 @@ export class RegexTokenizer {
 
   decode(tokenChunks: number[][]) {
     debug('decoding %s token chunks', tokenChunks.length);
-
-    // const chunks = tokenChunks.slice()
-    // // do not use reverse() as it mutates the array and causes bugs
-    // const merges = this.#merges.toReversed()
-    // for (const chunk of chunks) {
-    //   for (const merge of merges) {
-    //     for (let i = chunk.length - 1; i >= 0; i--) {
-    //       if (merge[0] === chunk[i]) {
-    //         chunk.splice(i, 1, ...merge[1])
-    //       }
-    //     }
-    //   }
-    // }
-    // return new TextDecoder().decode(new Uint8Array(chunks.flat()));
 
     const chunks: number[][] = [];
 
